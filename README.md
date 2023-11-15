@@ -263,6 +263,9 @@ And to check a module out, you can list the files with:
 rsync --list-only rsync://SERVER/MODULE
 ```
 
+#### repo
+For the repo config, QFM requires the directory to be `$DOCROOT` which it'll then copy modules into. This is different from all other sync methods.
+
 #### pre_hook
 A hook to run prior to running QFM.
 
@@ -308,7 +311,7 @@ For the trace file saving, this defines what type of repo is being synced. Optio
 #### Example
 ```bash
 example_sync_method=qfm
-example_repo='/home/mirror/http/example/'
+example_repo='/home/mirror/http/'
 example_timestamp='/home/mirror/timestamp/example'
 example_source='rsync://mirrors.example.com'
 example_modules=fedora-enchilada

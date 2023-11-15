@@ -5,7 +5,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin:/home/mirror/.
 
 # Variables for trace generation.
 PROGRAM="mirror-sync"
-VERSION="20231107"
+VERSION="20231114"
 TRACEHOST=$(hostname -f)
 mirror_hostname=$(hostname -f)
 DATE_STARTED=$(LC_ALL=POSIX LANG=POSIX date -u -R)
@@ -827,7 +827,28 @@ rsync_sync() {
 quick_fedora_mirror_sync() {
     MODULE=$1
     acquire_lock "$MODULE"
-    
+
+    # We need a mapping so we can know the final directory name.
+    MODULEMAPPING=(
+    fedora-alt          alt
+    fedora-archive      archive
+    fedora-enchilada    fedora
+    fedora-epel         epel
+    fedora-secondary    fedora-secondary
+    )
+
+    # Helper function to map to dir name.
+    module_dir() {
+        for ((M=0; M<${#MODULEMAPPING[@]}; M++)); do
+            N=$((M+1))
+            if [[ "${MODULEMAPPING[$M]}" == "$1" ]]; then
+                echo "${MODULEMAPPING[$N]}"
+                break
+            fi
+            M=$N
+        done
+    }
+
     # Read the configuration for this module.
     eval repo="\$${MODULE}_repo"
     eval pre_hook="\$${MODULE}_pre_hook"
@@ -856,8 +877,10 @@ quick_fedora_mirror_sync() {
     fi
     log_start_header
 
+    # Install QFM if not already installed.
     quick_fedora_mirror_install
 
+    # Build configuration file for QFM.
     conf_path="${QFM_PATH}/${MODULE}_qfm.conf"
     cat <<EOF > "$conf_path"
 DESTD="$repo"
@@ -874,6 +897,7 @@ EOF
     fi
     if [[ $module_mapping ]]; then
         echo "MODULEMAPPING=($module_mapping)" >> "$conf_path"
+        IFS=" " read -ra MODULEMAPPING < <(echo "$module_mapping")
     fi
     if [[ $mirror_manager_mapping ]]; then
         echo "MIRRORMANAGERMAPPING=($mirror_manager_mapping)" >> "$conf_path"
@@ -886,8 +910,10 @@ EOF
     fi
 
     # Create archive update file.
-    mirror_update_file="${repo:?}/Archive-Update-in-Progress-${mirror_hostname:?}"
-    touch "$mirror_update_file"
+    docroot=$repo
+    for module in $modules; do
+        touch "$docroot$(module_dir "$module")/Archive-Update-in-Progress-${mirror_hostname:?}"
+    done
     LOGFILE_SYNC="${LOGFILE}.sync"
     echo -n > "$LOGFILE_SYNC"
 
@@ -928,12 +954,17 @@ EOF
 
     # Save trace information.
     if [[ $repo_type ]]; then
-        save_trace_file
+        for module in $modules; do
+            repo="$docroot$(module_dir "$module")"
+            save_trace_file
+        done
     fi
     rm -f "$LOGFILE_SYNC"
 
     # Remove archive update file.
-    rm -f "$mirror_update_file"
+    for module in $modules; do
+        rm -f "$docroot$(module_dir "$module")/Archive-Update-in-Progress-${mirror_hostname:?}"
+    done
 
     # If report mirror configuration file provided, run report mirror.
     if [[ $report_mirror ]]; then

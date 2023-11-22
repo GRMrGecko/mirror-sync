@@ -352,6 +352,7 @@ s3cmd_sync() {
     # Run AWS client to sync the S3 bucket.
     eval "$sync_timeout" s3cmd sync \
         -v --progress \
+        --skip-existing \
         --delete-after \
         "$options" \
         "'${bucket:?}'" "'${repo:?}'"

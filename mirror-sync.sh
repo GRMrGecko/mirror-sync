@@ -353,6 +353,7 @@ s3cmd_sync() {
     eval "$sync_timeout" s3cmd sync \
         -v --progress \
         --skip-existing \
+        --delete-removed \
         --delete-after \
         "$options" \
         "'${bucket:?}'" "'${repo:?}'"

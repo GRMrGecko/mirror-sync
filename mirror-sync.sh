@@ -43,6 +43,9 @@ JIGDO_FILE_BIN="$HOME/bin/jigdo-file"
 JIGDO_MIRROR_BIN="$HOME/bin/jigdo-mirror"
 jigdoConf="$HOME/etc/jigdo/jigdo-mirror.conf"
 
+# Path to s5cmd bin.
+S5CMD_BIN="$HOME/bin/s5cmd"
+
 # Prevent run as root.
 if (( EUID == 0 )); then
   echo "Do not mirror as root."
@@ -122,7 +125,9 @@ quick_fedora_mirror_install() {
 
 # Installs jigdo image tool.
 jigdo_install() {
+    # Only install if not already installed or update requested.
     if [[ $1 == "-u" ]] || ! [[ -e $JIGDO_FILE_BIN ]]; then
+        # Make sure we're in the home dir and bin exists.
         if ! cd "$HOME"; then
             echo "Unable to access home dir."
             exit 1
@@ -130,10 +135,14 @@ jigdo_install() {
         if [[ ! -d bin ]]; then
             mkdir -p bin
         fi
+
+        # Download jigdo source code.
         if ! wget "$JIGDO_SOURCE_URL" -O jigdo.tar.xz; then
             echo "Unable to download jigdo utility."
             exit 1
         fi
+
+        # Extract jigdo.
         if ! tar -xvf jigdo.tar.xz; then
             echo "Unable to unarchive jigdo."
             exit 1
@@ -173,10 +182,52 @@ EOF
     fi
 }
 
+# Installs s5cmd for aws syncing.
+s5cmd_install() {
+    # Only install if not installed or update requested.
+    if ! [[ -f $S5CMD_BIN ]] || [[ $1 == "-u" ]]; then
+        # Make sure we're in the home dir and the bin dir exists.
+        if ! cd "$HOME"; then
+            echo "Unable to access home dir."
+            exit 1
+        fi
+        if [[ ! -d bin ]]; then
+            mkdir -p bin
+        fi
+
+        # Get the latest download URL from github.
+        download_url=$(curl -s https://api.github.com/repos/peak/s5cmd/releases/latest | jq '.assets[] | select(.browser_download_url | test("Linux-64bit.tar.gz")?) | .browser_download_url' -r)
+        if [[ -z $download_url ]]; then
+            echo "Unable to get download url for s5cmd."
+            exit 1
+        fi
+
+        # Download s5cmd
+        if ! wget "$download_url" -O s5cmd.tar.gz; then
+            echo "Unable to download s5cmd."
+            exit 1
+        fi
+
+        # Extract and check that s5cmd extracted correctly.
+        tar -xf s5cmd.tar.gz
+        if ! [[ -f s5cmd ]]; then
+            echo "Unable to extract s5cmd."
+            exit 1
+        fi
+
+        # Remove the tar.gz file.
+        rm -f s5cmd.tar.gz
+
+        # Move s5cmd to the bin path.
+        mv s5cmd "$S5CMD_BIN"
+    fi
+}
+
 # Updates the mirror support utilties on server with upstream.
 update_support_utilities() {
     quick_fedora_mirror_install -u
     jigdo_install -u
+    s5cmd_install -u
 }
 
 # Acquire a sync lock for this command.
@@ -355,6 +406,60 @@ s3cmd_sync() {
         --skip-existing \
         --delete-removed \
         --delete-after \
+        "$options" \
+        "'${bucket:?}'" "'${repo:?}'"
+    RT=${PIPESTATUS[0]}
+    if (( RT == 0 )); then
+        date +%s > "${timestamp:?}"
+        if [[ -e $ERRORFILE ]]; then
+            rm -f "$ERRORFILE"
+        fi
+    else
+        error_count=$((error_count+1))
+        if ((error_count>max_errors)); then
+            mail_error "Unable to sync with aws, check logs."
+            rm -f "$ERRORFILE"
+        fi
+        echo "$error_count" > "$ERRORFILE"
+    fi
+
+    log_end_header
+}
+
+# Sync AWS S3 bucket based mirrors using s5cmd.
+s5cmd_sync() {
+    s5cmd_install
+    MODULE=$1
+    acquire_lock "$MODULE"
+    
+    # Read the configuration for this module.
+    eval repo="\$${MODULE}_repo"
+    eval timestamp="\$${MODULE}_timestamp"
+    eval bucket="\$${MODULE}_aws_bucket"
+    eval AWS_ACCESS_KEY_ID="\$${MODULE}_aws_access_key"
+    eval AWS_SECRET_ACCESS_KEY="\$${MODULE}_aws_secret_key"
+    eval AWS_ENDPOINT_URL="\$${MODULE}_aws_endpoint_url"
+    eval sync_options="\$${MODULE}_sync_options"
+    eval options="\$${MODULE}_options"
+    export AWS_ACCESS_KEY_ID
+    export AWS_SECRET_ACCESS_KEY
+
+    # If configuration is not set, exit.
+    if [[ ! $repo ]]; then
+        echo "No configuration exists for ${MODULE}"
+        exit 1
+    fi
+    log_start_header
+
+    if [[ -n $AWS_ENDPOINT_URL ]]; then
+        options="$options --endpoint-url='$AWS_ENDPOINT_URL'"
+    fi
+
+    # Run AWS client to sync the S3 bucket.
+    eval "$sync_timeout" "$S5CMD_BIN" "$options" \
+        sync "${sync_options:-}" \
+        --no-follow-symlinks \
+        --delete \
         "$options" \
         "'${bucket:?}'" "'${repo:?}'"
     RT=${PIPESTATUS[0]}
@@ -1052,6 +1157,8 @@ while (( $# > 0 )); do
                         aws_sync "$@"
                     elif [[ "${sync_method:?}" == "s3cmd" ]]; then
                         s3cmd_sync "$@"
+                    elif [[ "${sync_method:?}" == "s5cmd" ]]; then
+                        s5cmd_sync "$@"
                     elif [[ "${sync_method:?}" == "ftp" ]]; then
                         ftp_sync "$@"
                     elif [[ "${sync_method:?}" == "wget" ]]; then

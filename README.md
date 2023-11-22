@@ -157,7 +157,7 @@ The access key for the s3 bucket.
 The secret for the s3 bucket.
 
 #### options
-Extra options to append to `aws s3 sync`.
+Extra options to append to `s5cmd`.
 
 #### Example
 ```bash
@@ -178,6 +178,37 @@ example_aws_bucket="s3://bucket/directory"
 example_aws_access_key="RANDOM_KEY_FROM_PROVIDER"
 example_aws_secret_key="RANDOM_SECRET_FROM_PROVIDER"
 example_options="--host='objects.example.com' --host-bucket='%(bucket).objects.example.com'"
+```
+
+### s5cmd
+Synchronize with an s3 bucket using s5cmd. The s5cmd will auto install if not existing.
+
+#### aws_bucket
+The bucket URL to sync with. You must end the bucket url with `*` for s5cmd to work.
+
+#### aws_access_key
+The access key for the s3 bucket.
+
+### aws_secret_key
+The secret for the s3 bucket.
+
+#### aws_endpoint_url
+If you are using a third party S3 compatible service, you can enter their endpoint URL here.
+
+#### options
+Extra options to append to `s5cmd`.
+
+#### sync_options
+Extra options to append to the `sync` command of s5cmd.
+
+#### Example
+```bash
+example_sync_method="s5cmd"
+example_repo="/home/mirror/http/example"
+example_timestamp="/home/mirror/timestamp/example"
+example_aws_bucket="s3://bucket/directory/*"
+example_aws_access_key="RANDOM_KEY_FROM_PROVIDER"
+example_aws_secret_key="RANDOM_SECRET_FROM_PROVIDER"
 ```
 
 ### ftp
@@ -374,21 +405,22 @@ There are not that many cli options available, usage is as follows:
 - s3cmd
 - lftp
 - wget
+- curl
 - rsync
 - jigdo - this tool auto installs.
 - quick-fedora-mirror - this tool auto installs.
 
 ### Install on RPM based servers
 ```bash
-yum install bash zsh sendmail git awscli s3cmd lftp wget rsync
+yum install bash zsh sendmail git awscli s3cmd lftp wget curl rsync
 ```
 
 ### Install on DEB based servers
 ```bash
-apt install bash zsh sendmail git awscli s3cmd lftp wget rsync
+apt install bash zsh sendmail git awscli s3cmd lftp wget curl rsync
 ```
 
 ### Install on Arch 
 ```bash
-yay -S bash zsh sendmail git aws-cli-git s3cmd lftp wget rsync
+yay -S bash zsh sendmail git aws-cli-git s3cmd lftp wget curl rsync
 ```

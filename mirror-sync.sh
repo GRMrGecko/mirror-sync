@@ -460,7 +460,6 @@ s5cmd_sync() {
         sync "${sync_options:-}" \
         --no-follow-symlinks \
         --delete \
-        "$options" \
         "'${bucket:?}'" "'${repo:?}'"
     RT=${PIPESTATUS[0]}
     if (( RT == 0 )); then

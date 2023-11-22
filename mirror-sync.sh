@@ -5,7 +5,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin:/home/mirror/.
 
 # Variables for trace generation.
 PROGRAM="mirror-sync"
-VERSION="20231114"
+VERSION="20231122"
 TRACEHOST=$(hostname -f)
 mirror_hostname=$(hostname -f)
 DATE_STARTED=$(LC_ALL=POSIX LANG=POSIX date -u -R)
@@ -307,6 +307,52 @@ aws_sync() {
     eval "$sync_timeout" aws s3 sync \
         --no-follow-symlinks \
         --delete \
+        "$options" \
+        "'${bucket:?}'" "'${repo:?}'"
+    RT=${PIPESTATUS[0]}
+    if (( RT == 0 )); then
+        date +%s > "${timestamp:?}"
+        if [[ -e $ERRORFILE ]]; then
+            rm -f "$ERRORFILE"
+        fi
+    else
+        error_count=$((error_count+1))
+        if ((error_count>max_errors)); then
+            mail_error "Unable to sync with aws, check logs."
+            rm -f "$ERRORFILE"
+        fi
+        echo "$error_count" > "$ERRORFILE"
+    fi
+
+    log_end_header
+}
+
+# Sync AWS S3 bucket based mirrors using s3cmd.
+s3cmd_sync() {
+    MODULE=$1
+    acquire_lock "$MODULE"
+    
+    # Read the configuration for this module.
+    eval repo="\$${MODULE}_repo"
+    eval timestamp="\$${MODULE}_timestamp"
+    eval bucket="\$${MODULE}_aws_bucket"
+    eval AWS_ACCESS_KEY_ID="\$${MODULE}_aws_access_key"
+    eval AWS_SECRET_ACCESS_KEY="\$${MODULE}_aws_secret_key"
+    eval options="\$${MODULE}_options"
+    export AWS_ACCESS_KEY_ID
+    export AWS_SECRET_ACCESS_KEY
+
+    # If configuration is not set, exit.
+    if [[ ! $repo ]]; then
+        echo "No configuration exists for ${MODULE}"
+        exit 1
+    fi
+    log_start_header
+
+    # Run AWS client to sync the S3 bucket.
+    eval "$sync_timeout" s3cmd sync \
+        -v --progress \
+        --delete-after \
         "$options" \
         "'${bucket:?}'" "'${repo:?}'"
     RT=${PIPESTATUS[0]}
@@ -1002,6 +1048,8 @@ while (( $# > 0 )); do
                         git_sync "$@"
                     elif [[ "${sync_method:?}" == "aws" ]]; then
                         aws_sync "$@"
+                    elif [[ "${sync_method:?}" == "s3cmd" ]]; then
+                        s3cmd_sync "$@"
                     elif [[ "${sync_method:?}" == "ftp" ]]; then
                         ftp_sync "$@"
                     elif [[ "${sync_method:?}" == "wget" ]]; then

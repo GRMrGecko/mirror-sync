@@ -99,7 +99,7 @@ Each module is configured via configurations prefixed by the module name. The on
 
 Each repo has at bare minimum the following configurations:
 
-- sync_method - rsync, git, aws, ftp, wget, or qfm.
+- sync_method - rsync, git, aws, s3cmd, ftp, wget, or qfm.
 - repo - The destination directory of the repository.
 - timestamp - Path to a file to store the last successful sync unix time stamp. Can be used by a monitoring system to confirm each repo is syncing successfully.
 
@@ -125,6 +125,9 @@ The bucket URL to sync with.
 #### aws_access_key
 The access key for the s3 bucket.
 
+### aws_secret_key
+The secret for the s3 bucket.
+
 #### aws_endpoint_url
 If you are using a third party S3 compatible service, you can enter their endpoint URL here.
 
@@ -139,6 +142,42 @@ example_timestamp="/home/mirror/timestamp/example"
 example_aws_bucket="s3://bucket/directory"
 example_aws_access_key="RANDOM_KEY_FROM_PROVIDER"
 example_aws_secret_key="RANDOM_SECRET_FROM_PROVIDER"
+```
+
+### s3cmd
+Synchronize with an s3 bucket using s3cmd. To use this, you need the s3cmd package installed.
+
+#### aws_bucket
+The bucket URL to sync with.
+
+#### aws_access_key
+The access key for the s3 bucket.
+
+### aws_secret_key
+The secret for the s3 bucket.
+
+#### options
+Extra options to append to `aws s3 sync`.
+
+#### Example
+```bash
+example_sync_method="s3cmd"
+example_repo="/home/mirror/http/example"
+example_timestamp="/home/mirror/timestamp/example"
+example_aws_bucket="s3://bucket/directory"
+example_aws_access_key="RANDOM_KEY_FROM_PROVIDER"
+example_aws_secret_key="RANDOM_SECRET_FROM_PROVIDER"
+```
+
+Example of using third party bucket:
+```bash
+example_sync_method="s3cmd"
+example_repo="/home/mirror/http/example"
+example_timestamp="/home/mirror/timestamp/example"
+example_aws_bucket="s3://bucket/directory"
+example_aws_access_key="RANDOM_KEY_FROM_PROVIDER"
+example_aws_secret_key="RANDOM_SECRET_FROM_PROVIDER"
+example_options="--host='objects.example.com' --host-bucket='%(bucket).objects.example.com'"
 ```
 
 ### ftp
@@ -332,6 +371,7 @@ There are not that many cli options available, usage is as follows:
 - sendmail
 - git
 - awscli
+- s3cmd
 - lftp
 - wget
 - rsync
@@ -340,15 +380,15 @@ There are not that many cli options available, usage is as follows:
 
 ### Install on RPM based servers
 ```bash
-yum install bash zsh sendmail git awscli lftp wget rsync
+yum install bash zsh sendmail git awscli s3cmd lftp wget rsync
 ```
 
 ### Install on DEB based servers
 ```bash
-apt install bash zsh sendmail git awscli lftp wget rsync
+apt install bash zsh sendmail git awscli s3cmd lftp wget rsync
 ```
 
 ### Install on Arch 
 ```bash
-yay -S bash zsh sendmail git aws-cli-git lftp wget rsync
+yay -S bash zsh sendmail git aws-cli-git s3cmd lftp wget rsync
 ```

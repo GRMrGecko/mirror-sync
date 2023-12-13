@@ -5,7 +5,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin:/home/mirror/.
 
 # Variables for trace generation.
 PROGRAM="mirror-sync"
-VERSION="20231122"
+VERSION="20231213"
 TRACEHOST=$(hostname -f)
 mirror_hostname=$(hostname -f)
 DATE_STARTED=$(LC_ALL=POSIX LANG=POSIX date -u -R)
@@ -781,6 +781,7 @@ rsync_sync() {
     eval options_stage2="\$${MODULE}_options_stage2"
     eval pre_stage2_hook="\$${MODULE}_pre_stage2_hook"
     eval upstream_check="\$${MODULE}_upstream_check"
+    eval time_file_check="\$${MODULE}_time_file_check"
     eval report_mirror="\$${MODULE}_report_mirror"
     eval RSYNC_PASSWORD="\$${MODULE}_rsync_password"
     if [[ $RSYNC_PASSWORD ]]; then
@@ -818,6 +819,20 @@ rsync_sync() {
                 echo "Skipping sync as upstream wasn't updated recently."
                 exit 88
             fi
+        fi
+    fi
+
+    # If a time file check was defined, and check if needed.
+    if [[ ${time_file_check:-} ]]; then
+        echo "Checking if time file has changed since last sync."
+        checkresult=$($sync_timeout rsync \
+            --no-motd \
+            --dry-run \
+            --out-format="%n" \
+            "${source:?}/${time_file_check:?}" "${repo:?}/${time_file_check:?}")
+        if [[ -z $checkresult ]]; then
+            echo "The time file has not changed since last sync, we are not updating at this time."
+            exit 88
         fi
     fi
 

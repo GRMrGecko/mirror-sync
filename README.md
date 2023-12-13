@@ -267,6 +267,9 @@ A hook to run prior to the second stage sync.
 #### upstream_check
 An http URL to check the last modified date as a reference for if the upstream mirror was possibly modified recently. This option is mainly here to lower the impact on upstream mirrors so that mirrorning happens less often. See `upstream_timestamp_min` and `upstream_max_age` for global configuration options of this check.
 
+### time_file_check
+Name of a time file to check if the upstream has updated before syncing all files to reduce load on upstream mirrors.
+
 #### report_mirror
 If you have Fedora report mirror installed, and need to report back to Fedora about the status of your repository, you can provide this option a configuration path for the `report_mirror` utility to run the report after a successful sync.
 

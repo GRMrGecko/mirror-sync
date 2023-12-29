@@ -5,7 +5,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin:/home/mirror/.
 
 # Variables for trace generation.
 PROGRAM="mirror-sync"
-VERSION="20231213"
+VERSION="20231229"
 TRACEHOST=$(hostname -f)
 mirror_hostname=$(hostname -f)
 DATE_STARTED=$(LC_ALL=POSIX LANG=POSIX date -u -R)
@@ -284,6 +284,102 @@ log_end_header() {
     echo "=========================================="
 }
 
+# Build dsum totals files if defined.
+rebuild_dusum_totals() {
+    # Rebuild byte total.
+    if [[ $dusum_byte_total_file ]]; then
+        {
+            date
+            totalBytes=0
+            for MODULE in ${MODULES:?}; do
+                eval dusum="\${${MODULE}_dusum:-}"
+                if [[ -n $dusum ]]; then
+                    while read -r size path; do
+                        if [[ -n $size ]]; then
+                            totalBytes=$((totalBytes+size))
+                            printf "%-12s %s\n" "$size" "$path"
+                        fi
+                    done < "$dusum"
+                fi
+            done
+            printf "%-12s %s\n" "$totalBytes" "total"
+        } > "$dusum_byte_total_file"
+    fi
+
+    # Rebuild human readable total.
+    if [[ $dusum_human_readable_total_file ]]; then
+        {
+            date
+            totalBytes=0
+            for MODULE in ${MODULES:?}; do
+                eval dusum="\${${MODULE}_dusum:-}"
+                if [[ -n $dusum ]]; then
+                    while read -r size path; do
+                        if [[ -n $size ]]; then
+                            totalBytes=$((totalBytes+size))
+                            printf "%-5s %s\n" "$(numfmt --to=iec <<<"$size")" "$path"
+                        fi
+                    done < "$dusum"
+                fi
+            done
+            printf "%-5s %s\n" "$(numfmt --to=iec <<<"$totalBytes")" "total"
+        } > "$dusum_human_readable_total_file"
+    fi
+}
+
+# Items to do post an successful sync.
+post_successful_sync() {
+    # Save timestamp of last sync.
+    if [[ $timestamp ]]; then
+        date +%s > "$timestamp"
+    fi
+    
+    # Remove error count file if existing.
+    if [[ -e $ERRORFILE ]]; then
+        rm -f "$ERRORFILE"
+    fi
+
+    # Update repo directory sum.
+    if [[ $dusum ]]; then
+        {
+            # If modules are defined, sum each module directory.
+            if [[ $modules ]]; then
+                for module in $modules; do
+                    du -s "$docroot$(module_dir "$module")/"
+                done
+            else
+                # Standard repo sum.
+                du -s "$repo"
+            fi
+        } 2>/dev/null > "$dusum"
+
+        rebuild_dusum_totals
+    fi
+}
+
+# On failed sync, count failure and exit.
+post_failed_sync() {
+    echo "Sync failed."
+    
+    # Update failure count.
+    new_error_count=$((error_count+1))
+
+    # If failure count is over our maximum defined errors, email about the failure.
+    if ((new_error_count>max_errors)); then
+        mail_error "Unable to sync with $MODULE, check logs."
+        
+        # Remove the error count file so that the count resets.
+        rm -f "$ERRORFILE"
+
+        # Exit not to not save the updated count.
+        exit 1
+    fi
+
+    # Update the error count file and exit.
+    echo "$new_error_count" > "$ERRORFILE"
+    exit 1
+}
+
 # Sync git based mirrors.
 git_sync() {
     MODULE=$1
@@ -292,6 +388,7 @@ git_sync() {
     # Read the configuration for this module.
     eval repo="\$${MODULE}_repo"
     eval timestamp="\$${MODULE}_timestamp"
+    eval dusum="\$${MODULE}_dusum"
     eval options="\$${MODULE}_options"
 
     # If configuration is not set, exit.
@@ -310,17 +407,9 @@ git_sync() {
         eval git pull "$options"
         RT=${PIPESTATUS[0]}
         if (( RT == 0 )); then
-            date +%s > "${timestamp:?}"
-            if [[ -e $ERRORFILE ]]; then
-                rm -f "$ERRORFILE"
-            fi
+            post_successful_sync
         else
-            new_error_count=$((error_count+1))
-            if ((new_error_count>max_errors)); then
-                mail_error "Unable to sync with git, check logs."
-                rm -f "$ERRORFILE"
-            fi
-            echo "$new_error_count" > "$ERRORFILE"
+            post_failed_sync
         fi
     )
 
@@ -335,6 +424,7 @@ aws_sync() {
     # Read the configuration for this module.
     eval repo="\$${MODULE}_repo"
     eval timestamp="\$${MODULE}_timestamp"
+    eval dusum="\$${MODULE}_dusum"
     eval bucket="\$${MODULE}_aws_bucket"
     eval AWS_ACCESS_KEY_ID="\$${MODULE}_aws_access_key"
     eval AWS_SECRET_ACCESS_KEY="\$${MODULE}_aws_secret_key"
@@ -362,17 +452,9 @@ aws_sync() {
         "'${bucket:?}'" "'${repo:?}'"
     RT=${PIPESTATUS[0]}
     if (( RT == 0 )); then
-        date +%s > "${timestamp:?}"
-        if [[ -e $ERRORFILE ]]; then
-            rm -f "$ERRORFILE"
-        fi
+        post_successful_sync
     else
-        error_count=$((error_count+1))
-        if ((error_count>max_errors)); then
-            mail_error "Unable to sync with aws, check logs."
-            rm -f "$ERRORFILE"
-        fi
-        echo "$error_count" > "$ERRORFILE"
+        post_failed_sync
     fi
 
     log_end_header
@@ -386,6 +468,7 @@ s3cmd_sync() {
     # Read the configuration for this module.
     eval repo="\$${MODULE}_repo"
     eval timestamp="\$${MODULE}_timestamp"
+    eval dusum="\$${MODULE}_dusum"
     eval bucket="\$${MODULE}_aws_bucket"
     eval AWS_ACCESS_KEY_ID="\$${MODULE}_aws_access_key"
     eval AWS_SECRET_ACCESS_KEY="\$${MODULE}_aws_secret_key"
@@ -410,17 +493,9 @@ s3cmd_sync() {
         "'${bucket:?}'" "'${repo:?}'"
     RT=${PIPESTATUS[0]}
     if (( RT == 0 )); then
-        date +%s > "${timestamp:?}"
-        if [[ -e $ERRORFILE ]]; then
-            rm -f "$ERRORFILE"
-        fi
+        post_successful_sync
     else
-        error_count=$((error_count+1))
-        if ((error_count>max_errors)); then
-            mail_error "Unable to sync with aws, check logs."
-            rm -f "$ERRORFILE"
-        fi
-        echo "$error_count" > "$ERRORFILE"
+        post_failed_sync
     fi
 
     log_end_header
@@ -435,6 +510,7 @@ s5cmd_sync() {
     # Read the configuration for this module.
     eval repo="\$${MODULE}_repo"
     eval timestamp="\$${MODULE}_timestamp"
+    eval dusum="\$${MODULE}_dusum"
     eval bucket="\$${MODULE}_aws_bucket"
     eval AWS_ACCESS_KEY_ID="\$${MODULE}_aws_access_key"
     eval AWS_SECRET_ACCESS_KEY="\$${MODULE}_aws_secret_key"
@@ -463,17 +539,9 @@ s5cmd_sync() {
         "'${bucket:?}'" "'${repo:?}'"
     RT=${PIPESTATUS[0]}
     if (( RT == 0 )); then
-        date +%s > "${timestamp:?}"
-        if [[ -e $ERRORFILE ]]; then
-            rm -f "$ERRORFILE"
-        fi
+        post_successful_sync
     else
-        error_count=$((error_count+1))
-        if ((error_count>max_errors)); then
-            mail_error "Unable to sync with aws, check logs."
-            rm -f "$ERRORFILE"
-        fi
-        echo "$error_count" > "$ERRORFILE"
+        post_failed_sync
     fi
 
     log_end_header
@@ -487,6 +555,7 @@ ftp_sync() {
     # Read the configuration for this module.
     eval repo="\$${MODULE}_repo"
     eval timestamp="\$${MODULE}_timestamp"
+    eval dusum="\$${MODULE}_dusum"
     eval source="\$${MODULE}_source"
     eval options="\$${MODULE}_options"
 
@@ -501,17 +570,9 @@ ftp_sync() {
     $sync_timeout lftp <<< "mirror -v --delete --no-perms $options '${source:?}' '${repo:?}'"
     RT=${PIPESTATUS[0]}
     if (( RT == 0 )); then
-        date +%s > "${timestamp:?}"
-        if [[ -e $ERRORFILE ]]; then
-            rm -f "$ERRORFILE"
-        fi
+        post_successful_sync
     else
-        error_count=$((error_count+1))
-        if ((error_count>max_errors)); then
-            mail_error "Unable to sync with lftp, check logs."
-            rm -f "$ERRORFILE"
-        fi
-        echo "$error_count" > "$ERRORFILE"
+        post_failed_sync
     fi
 
     log_end_header
@@ -525,6 +586,7 @@ wget_sync() {
     # Read the configuration for this module.
     eval repo="\$${MODULE}_repo"
     eval timestamp="\$${MODULE}_timestamp"
+    eval dusum="\$${MODULE}_dusum"
     eval source="\$${MODULE}_source"
     eval options="\$${MODULE}_options"
 
@@ -553,17 +615,9 @@ wget_sync() {
         eval "$sync_timeout" wget "$options" "'${source:?}'"
         RT=${PIPESTATUS[0]}
         if (( RT == 0 )); then
-            date +%s > "${timestamp:?}"
-            if [[ -e $ERRORFILE ]]; then
-                rm -f "$ERRORFILE"
-            fi
+            post_successful_sync
         else
-            new_error_count=$((error_count+1))
-            if ((new_error_count>max_errors)); then
-                mail_error "Unable to sync with lftp, check logs."
-                rm -f "$ERRORFILE"
-            fi
-            echo "$new_error_count" > "$ERRORFILE"
+            post_failed_sync
         fi
     )
 
@@ -776,6 +830,7 @@ rsync_sync() {
     eval repo="\$${MODULE}_repo"
     eval pre_hook="\$${MODULE}_pre_hook"
     eval timestamp="\$${MODULE}_timestamp"
+    eval dusum="\$${MODULE}_dusum"
     eval source="\$${MODULE}_source"
     eval options="\$${MODULE}_options"
     eval options_stage2="\$${MODULE}_options_stage2"
@@ -823,7 +878,7 @@ rsync_sync() {
     fi
 
     # If a time file check was defined, and check if needed.
-    if [[ ${time_file_check:-} ]]; then
+    if [[ ${time_file_check:-} ]] && (( force == 0 )); then
         echo "Checking if time file has changed since last sync."
         checkresult=$($sync_timeout rsync \
             --no-motd \
@@ -880,14 +935,7 @@ rsync_sync() {
 
     # Check if run was successful.
     if [[ $(grep -c '^total size is' "$LOGFILE_STAGE1") -ne 1 ]]; then
-        echo "Rsync failed."
-        error_count=$((error_count+1))
-        if ((error_count>max_errors)); then
-            mail_error "Unable to sync with rsync, check logs."
-            rm -f "$ERRORFILE"
-        fi
-        echo "$error_count" > "$ERRORFILE"
-        exit 1
+        post_failed_sync
     fi
 
     # If 2 stage, perform second stage.
@@ -947,22 +995,12 @@ rsync_sync() {
 
         # Check if run was successful.
         if [[ $(grep -c '^total size is' "$LOGFILE_STAGE2") -ne 1 ]]; then
-            echo "Rsync stage 2 failed."
-            error_count=$((error_count+1))
-            if ((error_count>max_errors)); then
-                mail_error "Unable to sync with rsync stage 2, check logs."
-                rm -f "$ERRORFILE"
-            fi
-            echo "$error_count" > "$ERRORFILE"
-            exit 1
+            post_failed_sync
         fi
     fi
     
-    # At this point we are successful, update timestamp of last sync.
-    date +%s > "${timestamp:?}"
-    if [[ -e $ERRORFILE ]]; then
-        rm -f "$ERRORFILE"
-    fi
+    # At this point we are successful.
+    post_successful_sync
 
     # Run any hooks.
     if [[ $post_hook ]]; then
@@ -1020,6 +1058,7 @@ quick_fedora_mirror_sync() {
     eval repo="\$${MODULE}_repo"
     eval pre_hook="\$${MODULE}_pre_hook"
     eval timestamp="\$${MODULE}_timestamp"
+    eval dusum="\$${MODULE}_dusum"
     eval source="\$${MODULE}_source"
     eval master_module="\$${MODULE}_master_module"
     eval module_mapping="\$${MODULE}_module_mapping"
@@ -1097,21 +1136,11 @@ EOF
 
     # Check if run was successful.
     if [[ $(grep -c '^total size is' "$LOGFILE_SYNC") -lt 1 ]]; then
-        echo "Rsync failed."
-        error_count=$((error_count+1))
-        if ((error_count>max_errors)); then
-            mail_error "Unable to sync with rsync, check logs."
-            rm -f "$ERRORFILE"
-        fi
-        echo "$error_count" > "$ERRORFILE"
-        exit 1
+        post_failed_sync
     fi
 
-    # At this point we are successful, update timestamp of last sync.
-    date +%s > "${timestamp:?}"
-    if [[ -e $ERRORFILE ]]; then
-        rm -f "$ERRORFILE"
-    fi
+    # At this point we are successful.
+    post_successful_sync
 
     # Run any hooks.
     if [[ $post_hook ]]; then

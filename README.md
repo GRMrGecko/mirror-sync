@@ -94,6 +94,12 @@ How fast are the pipes to your repository.
 ### INFO_TRIGGER
 How did the sync occur, cron job or manually via ssh? This is auto detected and you do not need to define this configuration.
 
+### dusum_human_readable_total_file
+Path to save a grand total of each disk usage sum in human readable form.
+
+### dusum_byte_total_file
+Path to save a grand total of each disk usage sum in bytes.
+
 ## Module specific configurations
 Each module is configured via configurations prefixed by the module name. The one configuration used by all modules is the `_sync_method` configuration which defines what sync method to use. Each sync method has different configurations available. The default sync method is rsync.
 
@@ -102,6 +108,7 @@ Each repo has at bare minimum the following configurations:
 - sync_method - rsync, git, aws, s3cmd, ftp, wget, or qfm.
 - repo - The destination directory of the repository.
 - timestamp - Path to a file to store the last successful sync unix time stamp. Can be used by a monitoring system to confirm each repo is syncing successfully.
+- dusum - Path to a file to store disk usage summary results of the repository directory.
 
 ### git
 Synchronizes a git repository via git pull. To use this method, you need to have the git package installed.

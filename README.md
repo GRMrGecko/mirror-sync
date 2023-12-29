@@ -97,8 +97,8 @@ How did the sync occur, cron job or manually via ssh? This is auto detected and 
 ### dusum_human_readable_total_file
 Path to save a grand total of each disk usage sum in human readable form.
 
-### dusum_byte_total_file
-Path to save a grand total of each disk usage sum in bytes.
+### dusum_kbytes_total_file
+Path to save a grand total of each disk usage sum in killo bytes.
 
 ## Module specific configurations
 Each module is configured via configurations prefixed by the module name. The one configuration used by all modules is the `_sync_method` configuration which defines what sync method to use. Each sync method has different configurations available. The default sync method is rsync.

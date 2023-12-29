@@ -286,43 +286,43 @@ log_end_header() {
 
 # Build dsum totals files if defined.
 rebuild_dusum_totals() {
-    # Rebuild byte total.
-    if [[ $dusum_byte_total_file ]]; then
+    # Rebuild killo byte total.
+    if [[ $dusum_kbytes_total_file ]]; then
         {
             date
-            totalBytes=0
+            totalKBytes=0
             for MODULE in ${MODULES:?}; do
                 eval dusum="\${${MODULE}_dusum:-}"
                 if [[ -n $dusum ]]; then
                     while read -r size path; do
                         if [[ -n $size ]]; then
-                            totalBytes=$((totalBytes+size))
+                            totalKBytes=$((totalKBytes+size))
                             printf "%-12s %s\n" "$size" "$path"
                         fi
                     done < "$dusum"
                 fi
             done
-            printf "%-12s %s\n" "$totalBytes" "total"
-        } > "$dusum_byte_total_file"
+            printf "%-12s %s\n" "$totalKBytes" "total"
+        } > "$dusum_kbytes_total_file"
     fi
 
     # Rebuild human readable total.
     if [[ $dusum_human_readable_total_file ]]; then
         {
             date
-            totalBytes=0
+            totalKBytes=0
             for MODULE in ${MODULES:?}; do
                 eval dusum="\${${MODULE}_dusum:-}"
                 if [[ -n $dusum ]]; then
                     while read -r size path; do
                         if [[ -n $size ]]; then
-                            totalBytes=$((totalBytes+size))
-                            printf "%-5s %s\n" "$(numfmt --to=iec <<<"$size")" "$path"
+                            totalKBytes=$((totalKBytes+size))
+                            printf "%-5s %s\n" "$(echo "$size*1024" | bc | numfmt --to=iec)" "$path"
                         fi
                     done < "$dusum"
                 fi
             done
-            printf "%-5s %s\n" "$(numfmt --to=iec <<<"$totalBytes")" "total"
+            printf "%-5s %s\n" "$(echo "$totalKBytes*1024" | bc | numfmt --to=iec)" "total"
         } > "$dusum_human_readable_total_file"
     fi
 }

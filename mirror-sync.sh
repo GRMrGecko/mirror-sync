@@ -293,7 +293,7 @@ rebuild_dusum_totals() {
             totalKBytes=0
             for MODULE in ${MODULES:?}; do
                 eval dusum="\${${MODULE}_dusum:-}"
-                if [[ -n $dusum ]]; then
+                if [[ -n $dusum ]] && [[ -f $dusum ]]; then
                     while read -r size path; do
                         if [[ -n $size ]]; then
                             totalKBytes=$((totalKBytes+size))
@@ -313,7 +313,7 @@ rebuild_dusum_totals() {
             totalKBytes=0
             for MODULE in ${MODULES:?}; do
                 eval dusum="\${${MODULE}_dusum:-}"
-                if [[ -n $dusum ]]; then
+                if [[ -n $dusum ]] && [[ -f $dusum ]]; then
                     while read -r size path; do
                         if [[ -n $size ]]; then
                             totalKBytes=$((totalKBytes+size))

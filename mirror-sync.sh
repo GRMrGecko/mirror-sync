@@ -5,7 +5,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin:/home/mirror/.
 
 # Variables for trace generation.
 PROGRAM="mirror-sync"
-VERSION="20231229"
+VERSION="20240102"
 TRACEHOST=$(hostname -f)
 mirror_hostname=$(hostname -f)
 DATE_STARTED=$(LC_ALL=POSIX LANG=POSIX date -u -R)
@@ -341,7 +341,8 @@ post_successful_sync() {
 
     # Update repo directory sum.
     if [[ $dusum ]]; then
-        {
+        # Get a sum, store to variable first to avoid having an empty file when another cron finishes.
+        SUM=$({
             # If modules are defined, sum each module directory.
             if [[ $modules ]]; then
                 for module in $modules; do
@@ -351,7 +352,10 @@ post_successful_sync() {
                 # Standard repo sum.
                 du -s "$repo"
             fi
-        } 2>/dev/null > "$dusum"
+        } 2>/dev/null)
+
+        # Save sum to file.
+        echo "$SUM" > "$dusum"
 
         rebuild_dusum_totals
     fi

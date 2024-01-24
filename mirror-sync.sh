@@ -5,7 +5,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin:/home/mirror/.
 
 # Variables for trace generation.
 PROGRAM="mirror-sync"
-VERSION="20240102"
+VERSION="20240124"
 TRACEHOST=$(hostname -f)
 mirror_hostname=$(hostname -f)
 DATE_STARTED=$(LC_ALL=POSIX LANG=POSIX date -u -R)
@@ -866,7 +866,7 @@ rsync_sync() {
         last_timestamp=$(cat "${timestamp:?}")
 
         # If last update was not that long ago, we should check if upstream was updated recently.
-        if [[ $((now-last_timestamp)) -lt ${upstream_timestamp_min:?} ]]; then
+        if (( now-last_timestamp < ${upstream_timestamp_min:?} )); then
             echo "Checking upstream's last modified."
 
             # Get the last modified date.
@@ -883,15 +883,21 @@ rsync_sync() {
 
     # If a time file check was defined, and check if needed.
     if [[ ${time_file_check:-} ]] && (( force == 0 )); then
-        echo "Checking if time file has changed since last sync."
-        checkresult=$($sync_timeout rsync \
-            --no-motd \
-            --dry-run \
-            --out-format="%n" \
-            "${source:?}/${time_file_check:?}" "${repo:?}/${time_file_check:?}")
-        if [[ -z $checkresult ]]; then
-            echo "The time file has not changed since last sync, we are not updating at this time."
-            exit 88
+        now=$(date +%s)
+        last_timestamp=$(cat "${timestamp:?}")
+
+        # Only check time file if the timestamp was recently updated.
+        if (( now-last_timestamp < ${upstream_timestamp_min:?} )); then
+            echo "Checking if time file has changed since last sync."
+            checkresult=$($sync_timeout rsync \
+                --no-motd \
+                --dry-run \
+                --out-format="%n" \
+                "${source:?}/${time_file_check:?}" "${repo:?}/${time_file_check:?}")
+            if [[ -z $checkresult ]]; then
+                echo "The time file has not changed since last sync, we are not updating at this time."
+                exit 88
+            fi
         fi
     fi
 

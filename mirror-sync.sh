@@ -63,7 +63,7 @@ fi
 
 # Print the help for this command.
 print_help() {
-    echo "Mirror Sync"
+    echo "Mirror Sync (${VERSION})"
     echo
     echo "Usage:"
     echo "$0 [--help|--update-support-utilities] {module} [--force]"
@@ -1198,6 +1198,11 @@ while (( $# > 0 )); do
         # If help is requested, print it.
         -h|h|help|--help)
             print_help "$@"
+        ;;
+        # Print version.
+        -v|--version)
+            echo "Mirror Sync (${VERSION})"
+            exit 0
         ;;
         # Default to rsync if module has no special options, otherwise if no module is found give help.
         *)

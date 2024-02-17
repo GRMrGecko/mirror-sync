@@ -1,11 +1,11 @@
 #!/bin/bash
 # This script is designed to handle mirror syncing tasks from external mirrors.
 # Each mirror is handled within a module which can be configured via the configuration file /etc/mirror-sync.conf.
-PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin:/home/mirror/.local/bin:/home/mirror/bin
+PATH="/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin:$HOME/.local/bin:$HOME/bin"
 
 # Variables for trace generation.
 PROGRAM="mirror-sync"
-VERSION="20240124"
+VERSION="20240217"
 TRACEHOST=$(hostname -f)
 mirror_hostname=$(hostname -f)
 DATE_STARTED=$(LC_ALL=POSIX LANG=POSIX date -u -R)
@@ -66,7 +66,7 @@ print_help() {
     echo "Mirror Sync (${VERSION})"
     echo
     echo "Usage:"
-    echo "$0 [--help|--update-support-utilities] {module} [--force]"
+    echo "$0 [--help|--update-support-utilities|--version] {module} [--force]"
     echo
     echo "Available modules:"
     for MODULE in ${MODULES:?}; do

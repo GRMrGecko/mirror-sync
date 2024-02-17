@@ -434,3 +434,154 @@ apt install bash zsh sendmail git awscli s3cmd lftp wget curl rsync
 ```bash
 yay -S bash zsh sendmail git aws-cli-git s3cmd lftp wget curl rsync
 ```
+
+# mirror-file-generator
+A tool to generate common mirror info files at the mirror document root.
+
+## Configuration of modules
+This tool utilizes the same config file as mirror-sync, and shares the following configurations.
+
+* repo - Used to verify a module is the same repo under the mirror.
+* sync_method - Used to determine if qfm mirror.
+* timestamp - Used for sync time.
+* dusum - Used for disk usage summary.
+
+The tool also adds the following repo 
+
+### section
+What section to associate the repo with.
+
+### repo_title
+A title for the repo to show instead of the directory name.
+
+### repo_icon
+The repo icon, will default to tux if not defined. The icon can be defined as an http(s) link, file path, a file stored in the template directory, or png image name from [Dashboard Icons](https://github.com/walkxcode/dashboard-icons/tree/main/png). The script will automatically make a copy or download the icon to the image folder.
+
+### repo_descriotion
+A description to show at the bottom of the repo card.
+
+### disable_size_calc
+Should be set to a 1 if you do not want a size to be calculated.
+
+### timestamp_file_stat
+If you do not have a timestamp file with the UNIX timestamp of the last sync, but there is a file or folder that is updated when changes are made. You can specify the path to that file or folder here and the script will stat it to determine the last sync time.
+
+## Configuration of custom modules
+If you have a repo that is not synced via the mirror-sync, but want to customize its look on the generated index.html. You can define a list of custom modules with the `CUSTOM_MODULES` variable, then define any of the following configurations.
+
+* repo
+* section
+* repo_title
+* repo_icon
+* repo_description
+* disable_size_calc
+* timestamp_file_stat
+
+All of the above configurations behave the same way a regular module behaves.
+
+### Example
+```bash
+CUSTOM_MODULES="example example2"
+
+example_repo='/home/mirror/http/'
+example_section="official"
+example_repo_title="Test repo"
+example_repo_icon="terminal.png"
+example_repo_descriont="Test, this is a test."
+
+example2_repo='/home/mirror/windows/'
+example2_repo_icon="windows.png"
+```
+
+## Mirrors
+You can define multiple mirrors for this tool to generate files for. Each mirror can have their own templates and repos, and are configured similar to how modules are configured. As such, it is worth maybe pre-pending `mirror_` to your mirror name.
+
+### path
+The path to the mirror under which repos are stored.
+
+### title
+A title for the mirror, defaults to the name if unset.
+
+### logo
+The logo, will default to tux if not defined. The logo can be defined as an http(s) link, file path, a file stored in the template directory, or png image name from [Dashboard Icons](https://github.com/walkxcode/dashboard-icons/tree/main/png). The script will automatically make a copy or download the icon to the image folder.
+
+### description
+A description to place below the logo that can be HTML formatted.
+
+### provider_site
+A site for the global footer generation.
+
+### provider_name
+A name for the global footer generation.
+
+### Example
+```bash
+MIRRORS="mirror_example"
+
+mirror_example_path="/home/mirror/mirror_docroot"
+mirror_example_name="My company"
+mirror_example_logo="http://example.com/logo.png"
+mirror_example_description="A public mirror provided by this cool company."
+mirror_example_provider_site="http://www.example.com/"
+mirror_example_provider_name="Company"
+```
+
+## Sections
+You can define multiple sections for the index.html with `SECTIONS` variable, it defaults to `official unofficial`. You can then set a default section with `section_default`, which defaults to `unofficial`. A title is auto generated as `{SECTION} Mirrors`, which you can customize with a variable named `section_{SECTION}_title`.
+
+## Templates
+Where templates are stored is configured by `template_dir` which defaults to `/usr/local/share/file-generator-templates`. Default files should be stored under the `default` sub directory, and any customizations to individual mirrors should be saved under a sub directory with that mirror's name. You can add icons/logos into these template directories as well.
+
+Default templates:
+* header.html - The main index header.
+* secion.thml - Template for a secion.
+* repo.html - The repo card template.
+* footer.html - The footer of the index.
+* footer.txt - Template for the global footer file.
+
+## Configurations of general defaults.
+
+### index_generate
+Rather or not to generate the index.html file.
+
+* 1 Enabled
+* 0 Disbaled
+
+### index_file_name
+If your index file name is different, you can adjust here.
+
+### footer_generate
+Rather or not to generate a footer file that can be configured as the mirror's global footer.
+
+* 1 Enabled
+* 0 Disbaled
+
+### footer_file_name
+Alternative file name for the footer file.
+
+### dir_sizes_generate
+Rather or not to generate directory sizes file.
+
+* 1 Enabled
+* 0 Disbaled
+
+### dir_sizes_file_name
+Alternative file name for directory sizes file.
+
+### dir_sizes_unknown_path
+Path to store directory size summaries for unknown repos.
+
+### dir_sizes_human_readable
+Should make human readable or output in kbytes.
+
+* 1 Human readable
+* 0 Kbytes
+
+### icons_dir_name
+Where to store logos and icons.
+
+### icons_default_source
+The default URL to pull icons from, defaults to [Dashboard Icons](https://github.com/walkxcode/dashboard-icons/tree/main/png).
+
+### icons_default_img
+A default file to use if icon or logo defined either isn't defined or isn't accessible.

@@ -1,0 +1,99 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
+<head>
+	<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>${title}</title>
+    <style type="text/css">
+        #header {
+            width: 100%;
+        }
+        #logo {
+            max-width: 500px;
+            width: 100%;
+            margin: 0 auto;
+            display: block;
+        }
+        .mirror-description {
+            max-width: 900px;
+            width: 100%;
+            margin: 0 auto;
+            padding-top: 20px;
+            padding-bottom: 20px;
+        }
+
+        .repo-list {
+            max-width: 1050px;
+            width: 100%;
+            margin: 0 auto;
+            padding-bottom: 40px;
+            text-align: center;
+        }
+        .repo-list a:link {
+            color: #000;
+            text-decoration: none;
+        }
+        .repo {
+            padding: 10px 10px;
+            width: 500px;
+            min-height: 96px;
+            height: auto;
+            box-sizing: border-box;
+            margin: 5px 5px;
+            background-color: #F0F0F0;
+            border-radius: 15px;
+            display: inline-block;
+            cursor: pointer;
+            color: #000;
+            text-decoration: none;
+        }
+        .repo-icon {
+            width: 15%;
+            min-width: 56px;
+            height: auto;
+            float: left;
+            padding: 5px;
+            padding-right: 15px;
+        }
+        .repo-body {
+            display: block;
+            text-align: left;
+        }
+        .repo-title {
+            font-weight: bold;
+        }
+        .repo-size {
+            font-size: 11pt;
+        }
+        .repo-sync {
+            font-size: 11pt;
+        }
+        .repo-desc {
+            font-style: italic;
+        }
+
+        .repo-section {
+            font-weight: bold;
+            text-align: left;
+            width: 100%;
+            display: block;
+            padding-top: 5px;
+            padding-bottom: 5px;
+        }
+
+        @media (max-width: 540px) {
+            .repo {
+                max-width: 500px;
+                width: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <img id="logo" src="${logo_relative}" alt="${title}" />
+        <div class="mirror-description">
+            ${description}
+        </div>
+    </div>
+    <div class="repo-list">

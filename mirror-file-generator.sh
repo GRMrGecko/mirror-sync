@@ -10,7 +10,7 @@ PATH="/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin:$HOME/.local/
 
 # Variables about this program.
 PROGRAM="mirror-file-generator"
-VERSION="20240217"
+VERSION="20240218"
 PIDFILE="/tmp/$PROGRAM.pid"
 LOGFILE="/var/log/mirror-sync/$PROGRAM.log"
 
@@ -370,6 +370,7 @@ for ((i=0; i<${#selected_mirrors[@]}; i++)); do
                 eval icon="\${${MODULE}_repo_icon:-}"
                 eval repo_description="\${${MODULE}_repo_description:-}"
                 eval disable_size_calc="\${${CUSTOM_MODULE}_disable_size_calc:-0}"
+                eval repo_skip="\${${CUSTOM_MODULE}_repo_skip:-0}"
                 eval timestamp_file_stat="\${${CUSTOM_MODULE}_timestamp_file_stat:-}"
 
                 # If a timestamp file exists, grab and format the date.
@@ -377,8 +378,8 @@ for ((i=0; i<${#selected_mirrors[@]}; i++)); do
                     repo_sync_time=$(date -d "@$(cat "${timestamp:?}")" '+%c')
                 fi
 
-                # If a directory usage summary exists, parse the size.
-                if [[ -f ${dusum:?} ]]; then
+                # If a directory usage summary exists and we're not skipping, parse the size.
+                if [[ -f ${dusum:?} ]] && ((${repo_skip:-0} == 0)); then
                     repo_size_kb=$(grep "$real_dir" "${dusum:?}" | awk '{print $1}')
                     if [[ -n $repo_size_kb ]]; then
                         totalKBytes=$((totalKBytes+repo_size_kb))
@@ -402,9 +403,19 @@ for ((i=0; i<${#selected_mirrors[@]}; i++)); do
                 eval icon="\${${CUSTOM_MODULE}_repo_icon:-}"
                 eval repo_description="\${${CUSTOM_MODULE}_repo_description:-}"
                 eval disable_size_calc="\${${CUSTOM_MODULE}_disable_size_calc:-0}"
+                eval repo_skip="\${${CUSTOM_MODULE}_repo_skip:-0}"
                 eval timestamp_file_stat="\${${CUSTOM_MODULE}_timestamp_file_stat:-}"
             fi
         done
+
+        # If we should skip this repo, continue to the next.
+        if ((${repo_skip:-0})); then
+            # Unset all vars for next repo.
+            unset repo_path repo_icon repo_title repo_size repo_size_kb \
+                    repo_sync_time repo_description timestamp dusum section \
+                    icon repo_skip disable_size_calc timestamp_file_stat
+            continue
+        fi
         
         # If a timstamp file stat is configured and the path exists, get the timestamp via stat.
         if [[ -e ${timestamp_file_stat:-} ]]; then
@@ -479,7 +490,9 @@ for ((i=0; i<${#selected_mirrors[@]}; i++)); do
         fi
 
         # Unset all vars for next repo.
-        unset repo_path repo_icon repo_title repo_size repo_size_kb repo_sync_time repo_description timestamp dusum section icon
+        unset repo_path repo_icon repo_title repo_size repo_size_kb \
+                repo_sync_time repo_description timestamp dusum section \
+                icon repo_skip disable_size_calc timestamp_file_stat
     done
 
     # If the index should be generated, add each section and footer.

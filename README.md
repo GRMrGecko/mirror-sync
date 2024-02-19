@@ -460,6 +460,9 @@ The repo icon, will default to tux if not defined. The icon can be defined as an
 ### repo_descriotion
 A description to show at the bottom of the repo card.
 
+### repo_skip
+This repo should not be put in generated files.
+
 ### disable_size_calc
 Should be set to a 1 if you do not want a size to be calculated.
 
@@ -474,6 +477,7 @@ If you have a repo that is not synced via the mirror-sync, but want to customize
 * repo_title
 * repo_icon
 * repo_description
+* repo_skip
 * disable_size_calc
 * timestamp_file_stat
 

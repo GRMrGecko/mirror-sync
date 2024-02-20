@@ -256,6 +256,10 @@ if (( ${#selected_mirrors[@]} == 0 )); then
     done
 fi
 
+# Keep track of repos which sizes were updated for to
+# avoid updating sizes in multi mirror situations.
+repo_sizes_updated=()
+
 # Scan each mirror and build files.
 for ((i=0; i<${#selected_mirrors[@]}; i++)); do
     mirror=${selected_mirrors[i]}
@@ -450,7 +454,12 @@ for ((i=0; i<${#selected_mirrors[@]}; i++)); do
             unknown_path="$dir_sizes_unknown_path/$mirror/$dir_name"
 
             # If we should update the directory usage sizes, do so.
-            if ((update_unknown_dir_size)) && ((${disable_size_calc:-0} == 0)); then
+            # shellcheck disable=SC2076
+            if ((update_unknown_dir_size)) && ((${disable_size_calc:-0} == 0)) \
+                && [[ ! " ${repo_sizes_updated[*]} " =~ " ${real_dir} " ]]; then
+                # Add to list of repos with updated sizes.
+                repo_sizes_updated+=("$real_dir")
+
                 log "Generating sum file for $dir_name"
                 # If the mirror dir under the unknown repo path doesn't exist, create it.
                 if [[ ! -e "$dir_sizes_unknown_path/$mirror" ]]; then

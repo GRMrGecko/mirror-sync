@@ -67,7 +67,8 @@ log() {
     echo "$(date --rfc-3339=seconds) $(hostname -s) ${PROGRAM}[$$]: $msg"
 }
 
-# Escape characters that are not HTML safe to ensure 
+# Escape characters that are not HTML safe to ensure accidental
+# code injection does not occur.
 html_encode() {
     local s
     s=${1//&/\&amp;}
@@ -95,7 +96,8 @@ image_copy() {
     if [[ -z $file ]]; then
         return
     fi
-    # Get the file name in which to save the file as. Would typically be logo or the directory name of the repo.
+    # Get the file name in which to save the file as.
+    # Would typically be logo or the directory name of the repo.
     local file_name=$2
     if [[ -z $file_name ]]; then
         return

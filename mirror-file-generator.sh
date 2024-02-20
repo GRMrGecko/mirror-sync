@@ -10,7 +10,7 @@ PATH="/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin:$HOME/.local/
 
 # Variables about this program.
 PROGRAM="mirror-file-generator"
-VERSION="20240218"
+VERSION="20240219"
 PIDFILE="/tmp/$PROGRAM.pid"
 LOGFILE="/var/log/mirror-sync/$PROGRAM.log"
 

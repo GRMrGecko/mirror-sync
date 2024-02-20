@@ -5,7 +5,7 @@ PATH="/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin:$HOME/.local/
 
 # Variables for trace generation.
 PROGRAM="mirror-sync"
-VERSION="20240217"
+VERSION="20240219"
 TRACEHOST=$(hostname -f)
 mirror_hostname=$(hostname -f)
 DATE_STARTED=$(LC_ALL=POSIX LANG=POSIX date -u -R)
@@ -97,6 +97,8 @@ $*
 EOF
     } | sendmail -i -t
 }
+
+#region Tool installation
 
 # Installs quick-fedora-mirror and updates.
 quick_fedora_mirror_install() {
@@ -228,6 +230,206 @@ update_support_utilities() {
     quick_fedora_mirror_install -u
     jigdo_install -u
     s5cmd_install -u
+}
+
+# Builds iso images from jigdo files.
+jigdo_hook() {
+    # Ensure jigdo is installed.
+    jigdo_install
+
+    # Determine the current version of Debian.
+    currentVersion=$(ls -l "${repo}/current")
+    currentVersion="${currentVersion##* -> }"
+    versionDir="$(realpath "$repo")/${currentVersion}"
+
+    # For each archetecture, run jigdo to build iso files.
+    for a in "$versionDir"/*/; do
+        arch=$(basename "$a")
+
+        # Determine what releases are needed for this archetecture.
+        sets=$(cat "${repo}/project/build/${currentVersion}/${arch}")
+
+        # For each set, build iso files.
+        for s in $sets; do
+            # Determine the jigdo and iso dir for this set.
+            jigdoDir="${repo}/${currentVersion}/${arch}/jigdo-${s}"
+            imageDir="${repo}/${currentVersion}/${arch}/iso-${s}"
+
+            # Create iso dir if not already made.
+            if [[ ! -d $imageDir ]]; then
+                mkdir -p "$imageDir"
+            fi
+
+            # Copy SUM files from the jigdo dir over to the new ISO dir.
+            # Sums are now SHA256SUMS and SHA512SUMS.
+            cp -a "${jigdoDir}"/*SUMS* "${imageDir}/"
+
+            # Build jigdo configuration.
+            cat >"${jigdoConf:?}.${arch}.${s}" <<EOF
+LOGROTATE=14
+jigdoFile="$JIGDO_FILE_BIN --cache=\$tmpDir/jigdo-cache.db --cache-expiry=1w --report=noprogress --no-check-files"
+debianMirror="file:${jigdo_pkg_repo:-}"
+nonusMirror="file:/tmp"
+include='.'  # include all files,
+exclude='^$' # then exclude none
+jigdoDir=${jigdoDir}
+imageDir=${imageDir}
+tmpDir=${tmpDirBase:?}/${arch}.${s}
+#logfile=${LOGPATH}/${MODULE}-${arch}.${s}.log
+EOF
+
+            # Run jigdo.
+            echo "Running jigdo for ${arch}.${s}"
+            $JIGDO_MIRROR_BIN "${jigdoConf:?}.${arch}.${s}"
+        done
+    done
+}
+
+# Pull a field from a trace file or rsync stats.
+extract_trace_field() {
+    value=$(awk -F': ' "\$1==\"$1\" {print \$2; exit}" "$2" 2>/dev/null)
+    [[ $value ]] || return 1
+    echo "$value"
+}
+
+# Build content for a trace file that contains info on a repository.
+build_trace_content() {
+    LC_ALL=POSIX LANG=POSIX date -u
+    rfc822date=$(LC_ALL=POSIX LANG=POSIX date -u -R)
+    echo "Date: ${rfc822date}"
+    echo "Date-Started: ${DATE_STARTED}"
+
+    if [[ -e $TRACEFILE_MASTER ]]; then
+        echo "Archive serial: $(extract_trace_field 'Archive serial' "$TRACE_MASTER_FILE" || echo unknown )"
+    fi
+
+    echo "Used ${PROGRAM} version: ${VERSION}"
+    echo "Creator: ${PROGRAM} ${VERSION}"
+    echo "Running on host: ${TRACEHOST}"
+
+    if [[ ${INFO_MAINTAINER:-} ]]; then
+        echo "Maintainer: ${INFO_MAINTAINER}"
+    fi
+    if [[ ${INFO_SPONSOR:-} ]]; then
+        echo "Sponsor: ${INFO_SPONSOR}"
+    fi
+    if [[ ${INFO_COUNTRY:-} ]]; then
+        echo "Country: ${INFO_COUNTRY}"
+    fi
+    if [[ ${INFO_LOCATION:-} ]]; then
+        echo "Location: ${INFO_LOCATION}"
+    fi
+    if [[ ${INFO_THROUGHPUT:-} ]]; then
+        echo "Throughput: ${INFO_THROUGHPUT}"
+    fi
+    if [[ ${INFO_TRIGGER:-} ]]; then
+        echo "Trigger: ${INFO_TRIGGER}"
+    fi
+
+    # Depending on repo type, find archetectures supported.
+    ARCH_REGEX='(source|SRPMS|amd64|mips64el|mipsel|i386|x86_64|aarch64|ppc64le|ppc64el|s390x|armhf)'
+    if [[ $repo_type == "deb" ]]; then
+        ARCH=$(find "${repo}/dists" \( -name 'Packages.*' -o -name 'Sources.*' \) 2>/dev/null |
+            sed -Ene 's#.*/binary-([^/]+)/Packages.*#\1#p; s#.*/(source)/Sources.*#\1#p' |
+            sort -u | tr '\n' ' ')
+        if [[ $ARCH ]]; then
+            echo "Architectures: ${ARCH}"
+        fi
+    elif [[ $repo_type == "rpm" ]]; then
+        ARCH=$(find "$repo" -name 'repomd.xml' 2>/dev/null |
+            grep -Po "$ARCH_REGEX" |
+            sort -u | tr '\n' ' ')
+        if [[ $ARCH ]]; then
+            echo "Architectures: ${ARCH}"
+        fi
+    elif [[ $repo_type == "iso" ]]; then
+        ARCH=$(find "$repo" -name '*.iso' 2>/dev/null |
+            grep -Po "$ARCH_REGEX" |
+            sort -u | tr '\n' ' ')
+        if [[ $ARCH ]]; then
+            echo "Architectures: ${ARCH}"
+        fi
+    elif [[ $repo_type == "source" ]]; then
+        echo "Architectures: source"
+    fi
+    echo "Architectures-Configuration: ${arch_configurations:-ALL}"
+
+    echo "Upstream-mirror: ${RSYNC_HOST:-unknown}"
+    
+    # Total bytes synced per rsync stage.
+    total=0
+    if [[ -f $LOGFILE_SYNC ]]; then
+        all_bytes=$(sed -Ene 's/(^|.* )sent ([0-9]+) bytes  received ([0-9]+) bytes.*/\3/p' "$LOGFILE_SYNC")
+        for bytes in $all_bytes; do
+            total=$(( total + bytes ))
+        done
+    elif [[ -f $LOGFILE_STAGE1 ]]; then
+        bytes=$(sed -Ene 's/(^|.* )sent ([0-9]+) bytes  received ([0-9]+) bytes.*/\3/p' "$LOGFILE_STAGE1")
+        total=$(( total + bytes ))
+    fi
+    if [[ -f $LOGFILE_STAGE2 ]]; then
+        bytes=$(sed -Ene 's/(^|.* )sent ([0-9]+) bytes  received ([0-9]+) bytes.*/\3/p' "$LOGFILE_STAGE2")
+        total=$(( total + bytes ))
+    fi
+    if (( total > 0 )); then
+        echo "Total bytes received in rsync: ${total}"
+    fi
+
+    # Calculate time per rsync stage and print both stages if both were started.
+    if [[ $sync_started ]]; then
+        STATS_TOTAL_RSYNC_TIME1=$(( sync_ended - sync_started  ))
+        total_time=$STATS_TOTAL_RSYNC_TIME1
+    elif [[ $stage1_started ]]; then
+        STATS_TOTAL_RSYNC_TIME1=$(( stage1_ended - stage1_started  ))
+        total_time=$STATS_TOTAL_RSYNC_TIME1
+    fi
+    if [[ $stage2_started ]]; then
+        STATS_TOTAL_RSYNC_TIME2=$(( stage2_ended - stage2_started  ))
+        total_time=$(( total_time + STATS_TOTAL_RSYNC_TIME2 ))
+        echo "Total time spent in stage1 rsync: ${STATS_TOTAL_RSYNC_TIME1}"
+        echo "Total time spent in stage2 rsync: ${STATS_TOTAL_RSYNC_TIME2}"
+    fi
+    echo "Total time spent in rsync: ${total_time}"
+    if (( total_time != 0 )); then
+        rate=$(( total / total_time ))
+        echo "Average rate: ${rate} B/s"
+    fi
+}
+
+# For modules that are repositories (with RPM, DEB, ISOs, or source code),
+# build a project trace file with information about the repo.
+# Mainly works with rsync based modules.
+save_trace_file() {
+    # Trace file/dir paths.
+    TRACE_DIR="${repo}/project/trace"
+    mkdir -p "$TRACE_DIR"
+    TRACE_FILE="${TRACE_DIR}/${mirror_hostname:?}"
+    TRACE_MASTER_FILE="${TRACE_DIR}/master"
+    TRACE_HIERARCHY="${TRACE_DIR}/_hierarchy"
+
+    # Parse the rsync host from the source.
+    RSYNC_HOST=${source:-}
+    RSYNC_HOST=${RSYNC_HOST/rsync:\/\//}
+    RSYNC_HOST=${RSYNC_HOST%%:*}
+    RSYNC_HOST=${RSYNC_HOST%%/*}
+
+    # Build trace and save to file.
+    build_trace_content > "${TRACE_FILE}.new"
+    mv "${TRACE_FILE}.new" "$TRACE_FILE"
+
+    # Build heirarchy file.
+    {
+        if [[ -e "${TRACE_HIERARCHY}.mirror" ]]; then
+            cat "${TRACE_HIERARCHY}.mirror"
+        fi
+        echo "$(basename "$TRACE_FILE") $mirror_hostname $TRACEHOST ${RSYNC_HOST:-unknown}"
+    } > "${TRACE_HIERARCHY}.new"
+    mv "${TRACE_HIERARCHY}.new" "$TRACE_HIERARCHY"
+    cp "$TRACE_HIERARCHY" "${TRACE_HIERARCHY}.mirror"
+
+    # Output all traces to _traces file. Disabling shell check because the glob in this case is used right.
+    # shellcheck disable=SC2035
+    (cd "$TRACE_DIR" && find * -type f \! -name "_*") > "$TRACE_DIR/_traces"
 }
 
 # Acquire a sync lock for this command.
@@ -384,8 +586,8 @@ post_failed_sync() {
     exit 1
 }
 
-# Sync git based mirrors.
-git_sync() {
+# Read common configurations, start logging, and acquire lock.
+module_config() {
     MODULE=$1
     acquire_lock "$MODULE"
     
@@ -401,6 +603,12 @@ git_sync() {
         exit 1
     fi
     log_start_header
+}
+
+# Sync git based mirrors.
+git_sync() {
+    # Start the module.
+    module_config "$1"
 
     (
         # Do a git pull within the repo folder to sync.
@@ -420,29 +628,21 @@ git_sync() {
     log_end_header
 }
 
-# Sync AWS S3 bucket based mirrors.
-aws_sync() {
-    MODULE=$1
-    acquire_lock "$MODULE"
-    
-    # Read the configuration for this module.
-    eval repo="\$${MODULE}_repo"
-    eval timestamp="\$${MODULE}_timestamp"
-    eval dusum="\$${MODULE}_dusum"
+# Read config common for AWS.
+read_aws_config() {
     eval bucket="\$${MODULE}_aws_bucket"
     eval AWS_ACCESS_KEY_ID="\$${MODULE}_aws_access_key"
-    eval AWS_SECRET_ACCESS_KEY="\$${MODULE}_aws_secret_key"
-    eval AWS_ENDPOINT_URL="\$${MODULE}_aws_endpoint_url"
-    eval options="\$${MODULE}_options"
     export AWS_ACCESS_KEY_ID
+    eval AWS_SECRET_ACCESS_KEY="\$${MODULE}_aws_secret_key"
     export AWS_SECRET_ACCESS_KEY
+    eval AWS_ENDPOINT_URL="\$${MODULE}_aws_endpoint_url"
+}
 
-    # If configuration is not set, exit.
-    if [[ ! $repo ]]; then
-        echo "No configuration exists for ${MODULE}"
-        exit 1
-    fi
-    log_start_header
+# Sync AWS S3 bucket based mirrors.
+aws_sync() {
+    # Start the module.
+    module_config "$1"
+    read_aws_config
 
     if [[ -n $AWS_ENDPOINT_URL ]]; then
         options="$options --endpoint-url='$AWS_ENDPOINT_URL'"
@@ -466,26 +666,13 @@ aws_sync() {
 
 # Sync AWS S3 bucket based mirrors using s3cmd.
 s3cmd_sync() {
-    MODULE=$1
-    acquire_lock "$MODULE"
-    
-    # Read the configuration for this module.
-    eval repo="\$${MODULE}_repo"
-    eval timestamp="\$${MODULE}_timestamp"
-    eval dusum="\$${MODULE}_dusum"
-    eval bucket="\$${MODULE}_aws_bucket"
-    eval AWS_ACCESS_KEY_ID="\$${MODULE}_aws_access_key"
-    eval AWS_SECRET_ACCESS_KEY="\$${MODULE}_aws_secret_key"
-    eval options="\$${MODULE}_options"
-    export AWS_ACCESS_KEY_ID
-    export AWS_SECRET_ACCESS_KEY
+    # Start the module.
+    module_config "$1"
+    read_aws_config
 
-    # If configuration is not set, exit.
-    if [[ ! $repo ]]; then
-        echo "No configuration exists for ${MODULE}"
-        exit 1
+    if [[ -n $AWS_ENDPOINT_URL ]]; then
+        options="$options --host='$AWS_ENDPOINT_URL'"
     fi
-    log_start_header
 
     # Run AWS client to sync the S3 bucket.
     eval "$sync_timeout" s3cmd sync \
@@ -507,29 +694,13 @@ s3cmd_sync() {
 
 # Sync AWS S3 bucket based mirrors using s5cmd.
 s5cmd_sync() {
+    # Install s5cmd if not already installed.
     s5cmd_install
-    MODULE=$1
-    acquire_lock "$MODULE"
-    
-    # Read the configuration for this module.
-    eval repo="\$${MODULE}_repo"
-    eval timestamp="\$${MODULE}_timestamp"
-    eval dusum="\$${MODULE}_dusum"
-    eval bucket="\$${MODULE}_aws_bucket"
-    eval AWS_ACCESS_KEY_ID="\$${MODULE}_aws_access_key"
-    eval AWS_SECRET_ACCESS_KEY="\$${MODULE}_aws_secret_key"
-    eval AWS_ENDPOINT_URL="\$${MODULE}_aws_endpoint_url"
-    eval sync_options="\$${MODULE}_sync_options"
-    eval options="\$${MODULE}_options"
-    export AWS_ACCESS_KEY_ID
-    export AWS_SECRET_ACCESS_KEY
 
-    # If configuration is not set, exit.
-    if [[ ! $repo ]]; then
-        echo "No configuration exists for ${MODULE}"
-        exit 1
-    fi
-    log_start_header
+    # Start the module.
+    module_config "$1"
+    read_aws_config
+    eval sync_options="\$${MODULE}_sync_options"
 
     if [[ -n $AWS_ENDPOINT_URL ]]; then
         options="$options --endpoint-url='$AWS_ENDPOINT_URL'"
@@ -553,22 +724,9 @@ s5cmd_sync() {
 
 # Sync using FTP.
 ftp_sync() {
-    MODULE=$1
-    acquire_lock "$MODULE"
-    
-    # Read the configuration for this module.
-    eval repo="\$${MODULE}_repo"
-    eval timestamp="\$${MODULE}_timestamp"
-    eval dusum="\$${MODULE}_dusum"
+    # Start the module.
+    module_config "$1"
     eval source="\$${MODULE}_source"
-    eval options="\$${MODULE}_options"
-
-    # If configuration is not set, exit.
-    if [[ ! $repo ]]; then
-        echo "No configuration exists for ${MODULE}"
-        exit 1
-    fi
-    log_start_header
 
     # Run AWS client to sync the S3 bucket.
     $sync_timeout lftp <<< "mirror -v --delete --no-perms $options '${source:?}' '${repo:?}'"
@@ -584,26 +742,13 @@ ftp_sync() {
 
 # Sync using wget.
 wget_sync() {
-    MODULE=$1
-    acquire_lock "$MODULE"
-    
-    # Read the configuration for this module.
-    eval repo="\$${MODULE}_repo"
-    eval timestamp="\$${MODULE}_timestamp"
-    eval dusum="\$${MODULE}_dusum"
+    # Start the module.
+    module_config "$1"
     eval source="\$${MODULE}_source"
-    eval options="\$${MODULE}_options"
 
     if [[ -z $options ]]; then
         options="--mirror --no-host-directories --no-parent"
     fi
-
-    # If configuration is not set, exit.
-    if [[ ! $repo ]]; then
-        echo "No configuration exists for ${MODULE}"
-        exit 1
-    fi
-    log_start_header
 
     (
         # Make sure the repo directory exists and we are in it.
@@ -628,188 +773,24 @@ wget_sync() {
     log_end_header
 }
 
-# Jigdo hook - builds iso images from jigdo files.
-jigdo_hook() {
-    jigdo_install
-    currentVersion=$(ls -l "${repo}/current")
-    currentVersion="${currentVersion##* -> }"
-    versionDir="$(realpath "$repo")/${currentVersion}"
-    for a in "$versionDir"/*/; do
-        arch=$(basename "$a")
-        sets=$(cat "${repo}/project/build/${currentVersion}/${arch}")
-        for s in $sets; do
-            jigdoDir="${repo}/${currentVersion}/${arch}/jigdo-${s}"
-            imageDir="${repo}/${currentVersion}/${arch}/iso-${s}"
-            if [[ ! -d $imageDir ]]; then
-                mkdir -p "$imageDir"
-            fi
-            # Sums are now SHA256SUMS and SHA512SUMS.
-            cp -a "${jigdoDir}"/*SUMS* "${imageDir}/"
-            cat >"${jigdoConf:?}.${arch}.${s}" <<EOF
-LOGROTATE=14
-jigdoFile="$JIGDO_FILE_BIN --cache=\$tmpDir/jigdo-cache.db --cache-expiry=1w --report=noprogress --no-check-files"
-debianMirror="file:${jigdo_pkg_repo:-}"
-nonusMirror="file:/tmp"
-include='.'  # include all files,
-exclude='^$' # then exclude none
-jigdoDir=${jigdoDir}
-imageDir=${imageDir}
-tmpDir=${tmpDirBase:?}/${arch}.${s}
-#logfile=${LOGPATH}/${MODULE}-${arch}.${s}.log
-EOF
-            echo "Running jigdo for ${arch}.${s}"
-            $JIGDO_MIRROR_BIN "${jigdoConf:?}.${arch}.${s}"
-        done
-    done
-}
-
-# Pull a field from a trace file or rsync stats.
-extract_trace_field() {
-    value=$(awk -F': ' "\$1==\"$1\" {print \$2; exit}" "$2" 2>/dev/null)
-    [[ $value ]] || return 1
-    echo "$value"
-}
-
-# Build trace content.
-build_trace_content() {
-    LC_ALL=POSIX LANG=POSIX date -u
-    rfc822date=$(LC_ALL=POSIX LANG=POSIX date -u -R)
-    echo "Date: ${rfc822date}"
-    echo "Date-Started: ${DATE_STARTED}"
-
-    if [[ -e $TRACEFILE_MASTER ]]; then
-        echo "Archive serial: $(extract_trace_field 'Archive serial' "$TRACE_MASTER_FILE" || echo unknown )"
+# Common config for rsync based modules.
+read_rsync_config() {
+    eval pre_hook="\$${MODULE}_pre_hook"
+    eval source="\$${MODULE}_source"
+    eval report_mirror="\$${MODULE}_report_mirror"
+    eval RSYNC_PASSWORD="\$${MODULE}_rsync_password"
+    if [[ $RSYNC_PASSWORD ]]; then
+        export RSYNC_PASSWORD
     fi
-
-    echo "Used ${PROGRAM} version: ${VERSION}"
-    echo "Creator: ${PROGRAM} ${VERSION}"
-    echo "Running on host: ${TRACEHOST}"
-
-    if [[ ${INFO_MAINTAINER:-} ]]; then
-        echo "Maintainer: ${INFO_MAINTAINER}"
-    fi
-    if [[ ${INFO_SPONSOR:-} ]]; then
-        echo "Sponsor: ${INFO_SPONSOR}"
-    fi
-    if [[ ${INFO_COUNTRY:-} ]]; then
-        echo "Country: ${INFO_COUNTRY}"
-    fi
-    if [[ ${INFO_LOCATION:-} ]]; then
-        echo "Location: ${INFO_LOCATION}"
-    fi
-    if [[ ${INFO_THROUGHPUT:-} ]]; then
-        echo "Throughput: ${INFO_THROUGHPUT}"
-    fi
-    if [[ ${INFO_TRIGGER:-} ]]; then
-        echo "Trigger: ${INFO_TRIGGER}"
-    fi
-
-    # Depending on repo type, find archetectures supported.
-    ARCH_REGEX='(source|SRPMS|amd64|mips64el|mipsel|i386|x86_64|aarch64|ppc64le|ppc64el|s390x|armhf)'
-    if [[ $repo_type == "deb" ]]; then
-        ARCH=$(find "${repo}/dists" \( -name 'Packages.*' -o -name 'Sources.*' \) 2>/dev/null |
-            sed -Ene 's#.*/binary-([^/]+)/Packages.*#\1#p; s#.*/(source)/Sources.*#\1#p' |
-            sort -u | tr '\n' ' ')
-        if [[ $ARCH ]]; then
-            echo "Architectures: ${ARCH}"
-        fi
-    elif [[ $repo_type == "rpm" ]]; then
-        ARCH=$(find "$repo" -name 'repomd.xml' 2>/dev/null |
-            grep -Po "$ARCH_REGEX" |
-            sort -u | tr '\n' ' ')
-        if [[ $ARCH ]]; then
-            echo "Architectures: ${ARCH}"
-        fi
-    elif [[ $repo_type == "iso" ]]; then
-        ARCH=$(find "$repo" -name '*.iso' 2>/dev/null |
-            grep -Po "$ARCH_REGEX" |
-            sort -u | tr '\n' ' ')
-        if [[ $ARCH ]]; then
-            echo "Architectures: ${ARCH}"
-        fi
-    elif [[ $repo_type == "source" ]]; then
-        echo "Architectures: source"
-    fi
-    echo "Architectures-Configuration: ${arch_configurations:-ALL}"
-
-    echo "Upstream-mirror: ${RSYNC_HOST:-unknown}"
-    
-    # Total bytes synced per rsync stage.
-    total=0
-    if [[ -f $LOGFILE_SYNC ]]; then
-        all_bytes=$(sed -Ene 's/(^|.* )sent ([0-9]+) bytes  received ([0-9]+) bytes.*/\3/p' "$LOGFILE_SYNC")
-        for bytes in $all_bytes; do
-            total=$(( total + bytes ))
-        done
-    elif [[ -f $LOGFILE_STAGE1 ]]; then
-        bytes=$(sed -Ene 's/(^|.* )sent ([0-9]+) bytes  received ([0-9]+) bytes.*/\3/p' "$LOGFILE_STAGE1")
-        total=$(( total + bytes ))
-    fi
-    if [[ -f $LOGFILE_STAGE2 ]]; then
-        bytes=$(sed -Ene 's/(^|.* )sent ([0-9]+) bytes  received ([0-9]+) bytes.*/\3/p' "$LOGFILE_STAGE2")
-        total=$(( total + bytes ))
-    fi
-    if (( total > 0 )); then
-        echo "Total bytes received in rsync: ${total}"
-    fi
-
-    # Calculate time per rsync stage and print both stages if both were started.
-    if [[ $sync_started ]]; then
-        STATS_TOTAL_RSYNC_TIME1=$(( sync_ended - sync_started  ))
-        total_time=$STATS_TOTAL_RSYNC_TIME1
-    elif [[ $stage1_started ]]; then
-        STATS_TOTAL_RSYNC_TIME1=$(( stage1_ended - stage1_started  ))
-        total_time=$STATS_TOTAL_RSYNC_TIME1
-    fi
-    if [[ $stage2_started ]]; then
-        STATS_TOTAL_RSYNC_TIME2=$(( stage2_ended - stage2_started  ))
-        total_time=$(( total_time + STATS_TOTAL_RSYNC_TIME2 ))
-        echo "Total time spent in stage1 rsync: ${STATS_TOTAL_RSYNC_TIME1}"
-        echo "Total time spent in stage2 rsync: ${STATS_TOTAL_RSYNC_TIME2}"
-    fi
-    echo "Total time spent in rsync: ${total_time}"
-    if (( total_time != 0 )); then
-        rate=$(( total / total_time ))
-        echo "Average rate: ${rate} B/s"
-    fi
-}
-
-# Save trace file.
-save_trace_file() {
-    # Trace file/dir paths.
-    TRACE_DIR="${repo}/project/trace"
-    mkdir -p "$TRACE_DIR"
-    TRACE_FILE="${TRACE_DIR}/${mirror_hostname:?}"
-    TRACE_MASTER_FILE="${TRACE_DIR}/master"
-    TRACE_HIERARCHY="${TRACE_DIR}/_hierarchy"
-
-    # Parse the rsync host from the source.
-    RSYNC_HOST=${source/rsync:\/\//}
-    RSYNC_HOST=${RSYNC_HOST%%:*}
-    RSYNC_HOST=${RSYNC_HOST%%/*}
-
-    # Build trace and save to file.
-    build_trace_content > "${TRACE_FILE}.new"
-    mv "${TRACE_FILE}.new" "$TRACE_FILE"
-
-    # Build heirarchy file.
-    {
-        if [[ -e "${TRACE_HIERARCHY}.mirror" ]]; then
-            cat "${TRACE_HIERARCHY}.mirror"
-        fi
-        echo "$(basename "$TRACE_FILE") $mirror_hostname $TRACEHOST ${RSYNC_HOST:-unknown}"
-    } > "${TRACE_HIERARCHY}.new"
-    mv "${TRACE_HIERARCHY}.new" "$TRACE_HIERARCHY"
-    cp "$TRACE_HIERARCHY" "${TRACE_HIERARCHY}.mirror"
-
-    # Output all traces to _traces file. Disabling shell check because the glob in this case is used right.
-    # shellcheck disable=SC2035
-    (cd "$TRACE_DIR" && find * -type f \! -name "_*") > "$TRACE_DIR/_traces"
+    eval post_hook="\$${MODULE}_post_hook"
+    eval arch_configurations="\$${MODULE}_arch_configurations"
+    eval repo_type="\$${MODULE}_type"
 }
 
 # Modules based on rsync.
 rsync_sync() {
-    MODULE=$1
+    # Start the module.
+    module_config "$1"
     shift
 
     # Check for any arguments.
@@ -828,35 +809,14 @@ rsync_sync() {
             ;;
         esac
     done
-    acquire_lock "$MODULE"
     
     # Read the configuration for this module.
-    eval repo="\$${MODULE}_repo"
-    eval pre_hook="\$${MODULE}_pre_hook"
-    eval timestamp="\$${MODULE}_timestamp"
-    eval dusum="\$${MODULE}_dusum"
-    eval source="\$${MODULE}_source"
-    eval options="\$${MODULE}_options"
+    read_rsync_config
+    eval jigdo_pkg_repo="\$${MODULE}_jigdo_pkg_repo"
     eval options_stage2="\$${MODULE}_options_stage2"
     eval pre_stage2_hook="\$${MODULE}_pre_stage2_hook"
     eval upstream_check="\$${MODULE}_upstream_check"
     eval time_file_check="\$${MODULE}_time_file_check"
-    eval report_mirror="\$${MODULE}_report_mirror"
-    eval RSYNC_PASSWORD="\$${MODULE}_rsync_password"
-    if [[ $RSYNC_PASSWORD ]]; then
-        export RSYNC_PASSWORD
-    fi
-    eval post_hook="\$${MODULE}_post_hook"
-    eval jigdo_pkg_repo="\$${MODULE}_jigdo_pkg_repo"
-    eval arch_configurations="\$${MODULE}_arch_configurations"
-    eval repo_type="\$${MODULE}_type"
-
-    # If configuration is not set, exit.
-    if [[ ! $repo ]]; then
-        echo "No configuration exists for ${MODULE}"
-        exit 1
-    fi
-    log_start_header
 
     # Check if upstream was updated recently if configured.
     # This is designed to slow down rsync so we only rsync
@@ -1040,8 +1000,8 @@ rsync_sync() {
 
 # Modules based on quick-fedora-mirror.
 quick_fedora_mirror_sync() {
-    MODULE=$1
-    acquire_lock "$MODULE"
+    # Start the module.
+    module_config "$1"
 
     # We need a mapping so we can know the final directory name.
     MODULEMAPPING=(
@@ -1065,26 +1025,13 @@ quick_fedora_mirror_sync() {
     }
 
     # Read the configuration for this module.
-    eval repo="\$${MODULE}_repo"
-    eval pre_hook="\$${MODULE}_pre_hook"
-    eval timestamp="\$${MODULE}_timestamp"
-    eval dusum="\$${MODULE}_dusum"
-    eval source="\$${MODULE}_source"
+    read_rsync_config
     eval master_module="\$${MODULE}_master_module"
     eval module_mapping="\$${MODULE}_module_mapping"
     eval mirror_manager_mapping="\$${MODULE}_mirror_manager_mapping"
     eval modules="\$${MODULE}_modules"
-    eval options="\$${MODULE}_options"
     eval filterexp="\$${MODULE}_filterexp"
     eval rsync_options="\$${MODULE}_rsync_options"
-    eval report_mirror="\$${MODULE}_report_mirror"
-    eval RSYNC_PASSWORD="\$${MODULE}_rsync_password"
-    if [[ $RSYNC_PASSWORD ]]; then
-        export RSYNC_PASSWORD
-    fi
-    eval post_hook="\$${MODULE}_post_hook"
-    eval arch_configurations="\$${MODULE}_arch_configurations"
-    eval repo_type="\$${MODULE}_type"
 
     # If configuration is not set, exit.
     if [[ ! $repo ]]; then

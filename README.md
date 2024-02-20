@@ -163,6 +163,9 @@ The access key for the s3 bucket.
 ### aws_secret_key
 The secret for the s3 bucket.
 
+#### aws_endpoint_url
+If you are using a third party S3 compatible service, you can enter their endpoint URL here in format of HOSTNAME:PORT.
+
 #### options
 Extra options to append to `s5cmd`.
 

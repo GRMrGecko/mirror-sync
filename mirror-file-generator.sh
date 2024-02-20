@@ -141,6 +141,19 @@ image_copy() {
     echo "$icons_dir_name/$file_name.$extension"
 }
 
+# Read the module's configuration.
+read_config() {
+    eval timestamp="\${${MODULE}_timestamp:-}"
+    eval dusum="\${${MODULE}_dusum:-}"
+    eval section="\${${MODULE}_section:-}"
+    eval repo_title="\${${MODULE}_repo_title:-}"
+    eval icon="\${${MODULE}_repo_icon:-}"
+    eval repo_description="\${${MODULE}_repo_description:-}"
+    eval disable_size_calc="\${${MODULE}_disable_size_calc:-0}"
+    eval repo_skip="\${${MODULE}_repo_skip:-0}"
+    eval timestamp_file_stat="\${${MODULE}_timestamp_file_stat:-}"
+}
+
 # Cli options.
 update_unknown_dir_size=0
 selected_mirrors=()
@@ -315,6 +328,10 @@ for ((i=0; i<${#selected_mirrors[@]}; i++)); do
         fi
         log "Checking repo $dir_name"
 
+
+        # If a module was found, we do not need to look further.
+        found_repo=0
+
         # Check each module to see if this directory is a module's repo.
         for MODULE in ${MODULES:?}; do
             # Get the repo with the trailing slash removed.
@@ -322,10 +339,9 @@ for ((i=0; i<${#selected_mirrors[@]}; i++)); do
             # Get the sync method for QFM detection.
             eval sync_method="\${${MODULE}_sync_method:-rsync}"
 
-            # Deterimine if this module is this repo.
-            this_repo=0
+            # If is this module.
             if [[ "${repo:?}" == "$real_dir" ]]; then
-                this_repo=1
+                found_repo=1
             # If QFM module, we need to determine sub path using QFM logic.
             elif [[ "${sync_method:?}" == "qfm" ]]; then
                 # We need a mapping so we can know the final directory name.
@@ -356,24 +372,16 @@ for ((i=0; i<${#selected_mirrors[@]}; i++)); do
                 docroot=$repo
                 for module in ${modules:?}; do
                     if [[ "$docroot/$(module_dir "$module")" == "$real_dir" ]]; then
-                        this_repo=1
+                        found_repo=1
                         break
                     fi
                 done
             fi
 
             # If this module was identified as this repo, grab configs.
-            if ((this_repo)); then
+            if ((found_repo)); then
                 log "Found repo configurations"
-                eval timestamp="\${${MODULE}_timestamp:-}"
-                eval dusum="\${${MODULE}_dusum:-}"
-                eval section="\${${MODULE}_section:-}"
-                eval repo_title="\${${MODULE}_repo_title:-}"
-                eval icon="\${${MODULE}_repo_icon:-}"
-                eval repo_description="\${${MODULE}_repo_description:-}"
-                eval disable_size_calc="\${${CUSTOM_MODULE}_disable_size_calc:-0}"
-                eval repo_skip="\${${CUSTOM_MODULE}_repo_skip:-0}"
-                eval timestamp_file_stat="\${${CUSTOM_MODULE}_timestamp_file_stat:-}"
+                read_config
 
                 # If a timestamp file exists, grab and format the date.
                 if [[ -f ${timestamp:?} ]]; then
@@ -392,23 +400,19 @@ for ((i=0; i<${#selected_mirrors[@]}; i++)); do
             fi
         done
 
-        # To allow customization of non synced modules, check each module.
-        for CUSTOM_MODULE in ${CUSTOM_MODULES:?}; do
-            # Get the repo with trailing slash removed.
-            eval repo="\${${CUSTOM_MODULE}_repo%/}"
-            
-            # Confirm if this custom module is this repo, and parse configs if it is.
-            if [[ "${repo:?}" == "$real_dir" ]]; then
-                log "Found custom configurations"
-                eval section="\${${CUSTOM_MODULE}_section:-}"
-                eval repo_title="\${${CUSTOM_MODULE}_repo_title:-}"
-                eval icon="\${${CUSTOM_MODULE}_repo_icon:-}"
-                eval repo_description="\${${CUSTOM_MODULE}_repo_description:-}"
-                eval disable_size_calc="\${${CUSTOM_MODULE}_disable_size_calc:-0}"
-                eval repo_skip="\${${CUSTOM_MODULE}_repo_skip:-0}"
-                eval timestamp_file_stat="\${${CUSTOM_MODULE}_timestamp_file_stat:-}"
-            fi
-        done
+        if ((found_repo == 0)); then
+            # To allow customization of non synced modules, check each module.
+            for MODULE in ${CUSTOM_MODULES:?}; do
+                # Get the repo with trailing slash removed.
+                eval repo="\${${MODULE}_repo%/}"
+                
+                # Confirm if this custom module is this repo, and parse configs if it is.
+                if [[ "${repo:?}" == "$real_dir" ]]; then
+                    log "Found custom configurations"
+                    read_config
+                fi
+            done
+        fi
 
         # If we should skip this repo, continue to the next.
         if ((${repo_skip:-0})); then

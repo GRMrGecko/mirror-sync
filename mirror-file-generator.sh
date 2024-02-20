@@ -428,7 +428,7 @@ for ((i=0; i<${#selected_mirrors[@]}; i++)); do
             # Get all timestamps, sort, and get the latest entry.
             latest_unix_stat=$(stat --format='%W %X %Y %Z' "$timestamp_file_stat" | tr ' ' '\n' | sort -nr | head -n1)
             # Format the timestamp.
-            repo_sync_time=$(date -d "@$(cat "$latest_unix_stat")" '+%c')
+            repo_sync_time=$(date -d "@$latest_unix_stat" '+%c')
         fi
 
         # HTML encode and export variables for subsitution.

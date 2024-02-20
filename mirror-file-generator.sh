@@ -17,7 +17,7 @@ LOGFILE="/var/log/mirror-sync/$PROGRAM.log"
 # Default variables
 SECTIONS="official unofficial"
 section_default="unofficial"
-template_dir="/usr/local/share/file-generator-templates"
+template_dir="/usr/local/share/mirror-file-generator/templates"
 index_generate=1
 index_file_name="index.html"
 footer_generate=1

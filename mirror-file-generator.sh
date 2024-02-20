@@ -450,12 +450,12 @@ for ((i=0; i<${#selected_mirrors[@]}; i++)); do
         export repo_icon
 
         # If repo size is undefined, check if an unknown repo directory size exists.
-        if [[ -z ${repo_size:-} ]]; then
+        if [[ -z ${repo_size:-} ]] && ((${disable_size_calc:-0} == 0)); then
             unknown_path="$dir_sizes_unknown_path/$mirror/$dir_name"
 
             # If we should update the directory usage sizes, do so.
             # shellcheck disable=SC2076
-            if ((update_unknown_dir_size)) && ((${disable_size_calc:-0} == 0)) \
+            if ((update_unknown_dir_size)) \
                 && [[ ! " ${repo_sizes_updated[*]} " =~ " ${real_dir} " ]]; then
                 # Add to list of repos with updated sizes.
                 repo_sizes_updated+=("$real_dir")
